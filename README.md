@@ -42,7 +42,6 @@ module avail fastqc
 module load bio/FastQC/0.12.1-Java-11
 module avail multiqc
 module load bio/MultiQC/1.22.3-foss-2023b
-java -jar $EBROOTTRIMMOMATIC/trimmomatic-0.39.jar
 ```
 Go to the working directory.
 ```
@@ -59,7 +58,8 @@ mkdir -p cutadapt_trim_reads  # Create output folder if it doesn't exist
 
 for R1 in *_R1_001.fastq.gz; do
     R2=${R1/_R1_001.fastq.gz/_R2_001.fastq.gz}                      
-    OUT1=cutadapt_trim_reads/trimmed_${R1}                         OUT2=cutadapt_trim_reads/trimmed_${R2}                  
+    OUT1=cutadapt_trim_reads/trimmed_${R1}
+    OUT2=cutadapt_trim_reads/trimmed_${R2}                  
 
     echo "Processing $R1 and $R2 ..."
 
