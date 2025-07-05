@@ -55,52 +55,53 @@ multiqc ./ -o ./multiqc_summary/
 Trimming of the reads:
 Go to the working directory.
 ```
-mkdir trimmed_reads
+mkdir -p cutadapt_trim_reads  # Create output folder if it doesn't exist
 
-for r1 in *_R1_001.fastq.gz; do
-  r2="${r1/_R1_/_R2_}"
-  sample="${r1%%_R1_001.fastq.gz}"
+for R1 in *_R1_001.fastq.gz; do
+    R2=${R1/_R1_001.fastq.gz/_R2_001.fastq.gz}                      
+    OUT1=cutadapt_trim_reads/trimmed_${R1}                         OUT2=cutadapt_trim_reads/trimmed_${R2}                  
 
-  echo "Processing $sample"
+    echo "Processing $R1 and $R2 ..."
 
-  java -jar $EBROOTTRIMMOMATIC/trimmomatic-0.39.jar PE -threads 8 -phred33 \
-    "$r1" "$r2" \
-    "trimmed_reads/${sample}_R1_paired_trimmed.fastq.gz" "trimmed_reads/${sample}_R1_unpaired.fastq.gz" \
-    "trimmed_reads/${sample}_R2_paired_trimmed.fastq.gz" "trimmed_reads/${sample}_R2_unpaired.fastq.gz" \
-    ILLUMINACLIP:$EBROOTTRIMMOMATIC/adapters/TruSeq3-PE.fa:2:30:10 \
-    SLIDINGWINDOW:4:20 MINLEN:50
+    cutadapt \
+      -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA \
+      -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT \
+      --nextseq-trim=2 \
+      -n 5 \
+      -O 5 \
+      -q 10,10 \
+      -m 35 \
+      -o $OUT1 \
+      -p $OUT2 \
+      $R1 $R2
 done
-
-cd trimmed_reads/
-mkdir unpaired_reads
-mv *_unpaired.fastq.gz unpaired_reads/
-mkdir after_cleaning_fastqc_reports
-fastqc ./*_paired_trimmed.fastq.gz -o after_cleaning_fastqc_reports/
-cd after_cleaning_fastqc_reports/
-mkdir multiqc_trimmed_summary
-multiqc ./ -o multiqc_trimmed_summary
 ```
-Trim the partially trimmed adapters with Cutadapt.
-Go to the Working directory.
-
-Activate the Cutadapt environment.
-conda activate cutadapt
+For two of the samples, I used different value for -n and -q.
 ```
-mkdir -p ../cutadapt_cleaned_reads
+cutadapt \
+  -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA \
+  -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT \
+  --nextseq-trim=2 \
+  --trim-n \
+  -n 7 \
+  -O 5 \
+  -q 20,20 \
+  -m 35 \
+  -o trimmed_10-F314-S1_S8_L001_R1_001.fastq.gz \
+  -p trimmed_10-F314-S1_S8_L001_R2_001.fastq.gz \
+  10-F314-S1_S8_L001_R1_001.fastq.gz 10-F314-S1_S8_L001_R2_001.fastq.gz
 
-for r1 in *_R1_paired_trimmed.fastq.gz; do
-  r2="${r1/_R1_paired_trimmed.fastq.gz/_R2_paired_trimmed.fastq.gz}"
-  sample=$(basename "$r1" _R1_paired_trimmed.fastq.gz)
-
-  echo "Processing $sample with Cutadapt"
-
-  cutadapt \
-    -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA \
-    -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT \
-    --minimum-length 50 --quality-cutoff 20 \
-    -o ../cutadapt_cleaned_reads/${sample}_R1_final.fastq.gz \
-    -p ../cutadapt_cleaned_reads/${sample}_R2_final.fastq.gz \
-    "$r1" "$r2"
-done
+cutadapt \
+  -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA \
+  -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT \
+  --nextseq-trim=2 \
+  --trim-n \
+  -n 7\
+  -O 5 \
+  -q 20,20 \
+  -m 35 \
+  -o trimmed_20-F314-Nla_S16_L001_R1_001.fastq.gz \
+  -p trimmed_20-F314-Nla_S16_L001_R2_001.fastq.gz \
+  20-F314-Nla_S16_L001_R1_001.fastq.gz 20-F314-Nla_S16_L001_R2_001.fastq.gz
 ```
 
