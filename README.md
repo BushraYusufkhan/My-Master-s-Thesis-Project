@@ -87,4 +87,36 @@ cutadapt \
   -p trimmed_20-F314-Nla_S16_L001_R2_001.fastq.gz \
   20-F314-Nla_S16_L001_R1_001.fastq.gz 20-F314-Nla_S16_L001_R2_001.fastq.gz
 ```
+#### Mapping:
+```
+#!/bin/bash
+
+REF="/scratch/bkhan1/hs1_HPV16/chm13v2_HPV16.fa"
+THREADS=8
+OUTDIR="/scratch/bkhan1/20240820_HPV_FFPE_TLC/combined_samples/Trimmed_reads_cutadapt/clean_reads_mapping"
+READDIR="/scratch/bkhan1/20240820_HPV_FFPE_TLC/combined_samples/Trimmed_reads_cutadapt"
+
+mkdir -p "$OUTDIR"
+
+for R1 in "$READDIR"/*_R1_001.fastq.gz; do
+    SAMPLE=$(basename "$R1" "_R1_001.fastq.gz")
+    R2="$READDIR/${SAMPLE}_R2_001.fastq.gz"
+
+    OUT_BAM="$OUTDIR/${SAMPLE}.sorted.bam"
+    OUT_BAI="$OUTDIR/${SAMPLE}.sorted.bam.bai"
+
+    if [[ -f "$OUT_BAM" && -f "$OUT_BAI" ]]; then
+        echo "Sample $SAMPLE already processed, skipping."
+        continue
+    fi
+
+    echo "Processing sample: $SAMPLE"
+
+    bwa mem -M -Y -t $THREADS -R "@RG\tID:$SAMPLE\tSM:$SAMPLE\tPL:ILLUMINA" "$REF" "$R1" "$R2" | \
+    samtools view -b - | \
+    samtools sort -@ $THREADS -o "$OUT_BAM"
+
+    samtools index "$OUT_BAM"
+done
+```
 
