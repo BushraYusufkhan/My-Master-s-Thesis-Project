@@ -834,4 +834,197 @@ done
 
 echo "Finished! Overall mean coverage saved in $summary"
 ```
-For the long reads also you can count the start and end of each cluster, this might work for some cases. But if the reads have split alignment on both ends the start and end will be the same. There will also be cases the start and end will be the same but the split alignment will only be on one side. Similarly, the long reads are fragmented, they will have multiple alignments other locations, mutiple breakpoints on viral side or human side. 
+For the long reads also you can count the start and end of reads for each cluster, this might work for some cases. But if the reads have split alignment on both ends the start and end will be the same. There will also be cases the start and end will be the same but the split alignment will only be on one side. Similarly, in some cases the long reads are fragmented, they will have multiple alignments other locations as well, mutiple breakpoints on viral or human side. 
+
+#### Overlap of the Identified human breakpoints with centromeric repeat annotation file:
+For this overlaping you do need the exact breakpoint, do can also do this overlap analysis with you cluster files. 
+```
+mkdir -p overlaps
+
+for file in cluster_*.tsv; do
+    base=$(basename "$file" .tsv)
+    bedtools intersect -a "$file" -b hub_3671779_censat.bed -wa -wb > overlaps/"${base}_overlapping_repeats.bed"
+done
+```
+Once you have the exact breakpoints you can use this again for confirmation.
+```
+#!/bin/bash
+
+# Input TSV
+input="dataset.tsv"
+
+# Get all unique Sample_IDs (excluding header)
+samples=$(awk 'NR>1 {print $2}' "$input" | sort | uniq)
+
+# Loop over each sample
+for s in $samples; do
+    echo "Processing sample: $s"
+
+    # Create BED for this sample (keep Cluster_ID and Human_bp in name)
+    awk -v sample="$s" 'BEGIN{OFS="\t"} NR>1 && $2==sample && $7!="" && $8!="" && $5!="" && $7!="NA" && $8>0 {
+        chr=$7; if(chr ~ /^[0-9]+$/) chr="chr"chr;
+        start=int($8)-1; end=int($8);
+        name=$5":"$8;  # Cluster_ID:Human_bp
+        print chr,start,end,name,".","."
+    }' "$input" > "${s}_breakpoints.bed"
+
+    # Intersect with censat BED
+    bedtools intersect -a "${s}_breakpoints.bed" -b hub_3671779_censat.bed -wa -wb > "${s}_overlaps_temp.bed"
+
+    # Generate simple TSV: Cluster_ID, Human_bp -> overlapping censat regions
+    awk 'BEGIN{OFS="\t"; print "Cluster_ID","Human_bp","Overlapping_censat"} {
+        split($4,a,":");
+        cluster=a[1];
+        human_bp=a[2];
+        map[cluster":"human_bp]=map[cluster":"human_bp]?map[cluster":"human_bp]","$10:$10
+        cluster_map[cluster":"human_bp]=cluster
+        bp_map[cluster":"human_bp]=human_bp
+    } END{for(k in map) print cluster_map[k], bp_map[k], map[k]}' "${s}_overlaps_temp.bed" > "${s}_overlaps.tsv"
+
+    echo "Output written to ${s}_overlaps.tsv"
+done
+```
+#### HPV gene annotation:
+Extract the features from genbank file for HPV16: https://www.ncbi.nlm.nih.gov/nuccore/1047888727
+```
+from Bio import SeqIO
+import pandas as pd
+
+record = SeqIO.read("sequence.gb", "genbank")
+
+features = []
+for feature in record.features:
+    if not feature.location:
+        continue
+
+    if 'gene' in feature.qualifiers:
+        name = feature.qualifiers['gene'][0]
+    elif 'product' in feature.qualifiers:
+        name = feature.qualifiers['product'][0]
+    elif 'note' in feature.qualifiers:
+        name = feature.qualifiers['note'][0]
+    else:
+        name = "unknown"
+
+    start = int(feature.location.start) + 1
+    end = int(feature.location.end)
+    ftype = feature.type
+
+    features.append({
+        "start": start,
+        "end": end,
+        "feature_type": ftype,
+        "feature_name": name
+    })
+
+features_df = pd.DataFrame(features)
+features_df.to_csv("hpv16_features.csv", index=False)
+
+print("Saved to hpv16_features.csv")
+print(features_df.head(10))
+```
+You might want to clean it a bit these are the features I kept:
+```
+feature_name,start,end,feature_type
+A in original sequence was deleted,6997,6997,misc_difference
+E1,1,1950,gene
+E1^E4,1,2756,gene
+E2,1892,2989,gene
+E4,1,2756,gene
+E5,2986,3237,gene
+E6,7125,7601,gene
+E7,7604,7900,gene
+GC in original sequence change to CGG,6570,6570,misc_difference
+L1,4775,6292,gene
+L2,3373,4794,gene
+"Upstream regulatory region (URR). Contains DNA-protein binding motifs. Involved in replication. Synonims: long control region (LCR),
+ noncoding region (NCR).",6293,7124,misc_feature
+putative,3351,3356,regulatory
+```
+```
+import pandas as pd
+
+# -------------------------------
+# Step 1: Load dataset
+# -------------------------------
+df = pd.read_csv("dataset.tsv", sep="\t")
+
+# Keep only necessary columns for annotation
+df = df[['Sample-ID', 'Viral_bp']].copy()
+
+# -------------------------------
+# Step 2: Load and clean HPV16 features
+# -------------------------------
+features_df = pd.read_csv("hpv16_features_clean.csv")
+
+# Remove irrelevant rows
+features_df = features_df[~features_df['feature_type'].isin(['source', 'misc_difference'])].copy()
+
+# Simplify spliced features
+features_df['feature_name'] = features_df['feature_name'].str.replace('E1\\^E4', 'E1', regex=True)
+features_df['feature_name'] = features_df['feature_name'].str.replace('E4', 'E1', regex=True)
+
+# Simplify long URR descriptions
+features_df['feature_name'] = features_df['feature_name'].replace(
+    to_replace=r"Upstream regulatory region.*",
+    value="URR",
+    regex=True
+)
+features_df['feature_type'] = features_df['feature_type'].replace(
+    to_replace=r"Upstream regulatory region.*",
+    value="URR",
+    regex=True
+)
+
+# -------------------------------
+# Step 3: Annotation function
+# -------------------------------
+def assign_feature(bp):
+    match = features_df[(features_df['start'] <= bp) & (features_df['end'] >= bp)]
+    if not match.empty:
+        # Prioritize regulatory > misc_feature > CDS > gene
+        priority = ['regulatory', 'misc_feature', 'CDS', 'gene']
+        for p in priority:
+            subset = match[match['feature_type'] == p]
+            if not subset.empty:
+                return subset.iloc[0]['feature_name'], subset.iloc[0]['feature_type']
+        return match.iloc[0]['feature_name'], match.iloc[0]['feature_type']
+    else:
+        return "intergenic", "intergenic"
+
+# -------------------------------
+# Step 4: Annotate breakpoints
+# -------------------------------
+df[['annotation', 'feature_type']] = df['Viral_bp'].apply(lambda x: pd.Series(assign_feature(x)))
+
+# -------------------------------
+# Step 5: Fix intergenic gaps
+# -------------------------------
+# Positions 0 or 7906 -> E1
+df.loc[df['Viral_bp'].isin([0, 7906]), ['annotation', 'feature_type']] = ['E1', 'E1']
+
+# Between E5 and L2 -> E5,L2
+df.loc[(df['annotation'] == 'intergenic') & (df['Viral_bp'] >= 3238) & (df['Viral_bp'] <= 3372),
+       ['annotation', 'feature_type']] = ['E5,L2', 'E5,L2']
+
+# Between E7 and E1 -> E1,E7
+df.loc[(df['annotation'] == 'intergenic') & (df['Viral_bp'] >= 7901) & (df['Viral_bp'] <= 7905),
+       ['annotation', 'feature_type']] = ['E1,E7', 'E1,E7']
+
+# Remaining unknowns
+df['annotation'] = df['annotation'].replace('intergenic', 'unknown')
+df['feature_type'] = df['feature_type'].replace('intergenic', 'unknown')
+
+# -------------------------------
+# Step 6: Save annotated table
+# -------------------------------
+df.to_csv("Symers-dataset-annotated.tsv", sep="\t", index=False)
+
+# -------------------------------
+# Step 7: Quick terminal output
+# -------------------------------
+print("Annotation complete!")
+print(df[['Viral_bp', 'annotation']].to_string(index=False))
+print("\nAnnotation counts:")
+print(df['annotation'].value_counts())
+```
