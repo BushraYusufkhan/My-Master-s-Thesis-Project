@@ -439,6 +439,7 @@ echo "All BAM files processed. Summary saved to $SUMMARY"
 ```
 I was facing an issue with short reads; sometimes the reads had identical start and end positions. I did not know what those were. I had already removed PCR duplicates. In the original study, they said something about low-complexity hairpin regions. And I assumed these would be the low complexity hairpin regions. And to get rid of those, I counted them as one; they were distorting the true signals.
 ```
+#!/bin/bash
 base_dir="/scratch/bkhan1/20240820_HPV_FFPE_TLC/combined_folder/samples-cut-with-nla/cutadapt_trim_reads/clean_reads_mapping/dedup-fi
 les/chimeric_reads/filtered-bam-files/processed_samples"
 
