@@ -769,9 +769,9 @@ echo "Finished mapping for $BASENAME at $(date)"
 ```
 And for the long reads Also I used the same logic (same script) to extract chimeric reads and divide them into clusters. And then later visulaized each cluster on IGV.
 
-However, there was a problem with Akagi's samples. It is whole-exome sequencing data, so it is a heavy dataset. There are also other reads exactly at the same location of human-HPV chimeric reads. Some are human-human chimeric reads, some are not even chimeric. So, when you extract them with samtools piping. Some of the human-chimeric reads might not get extracted. And also if you run the mapping again, even if you use the same parameters and you might get different results. I got to know about this very late in my analysis. I was almost done; otherwise, I would have tried to fix this. So, I had to do it all over again for the actual number of reads. One by one, I visualised every cluster again, this time in the original file. The conclusion is that you might need something robust to extract chimeric reads; piping with samtools and awk might not be able to do the job for WGS data. 
+However, there was a problem with Akagi's samples. It is whole-exome sequencing data, so it is a heavy dataset. There are also other reads exactly at the same location of human-HPV chimeric reads. Some are human-human chimeric reads, some are not even chimeric. So, when you extract them with samtools piping. Some of the human-chimeric reads might not get extracted. I got to know about this very late in my analysis. I was almost done; otherwise, I would have tried to fix this. So, I had to do it all over again for the actual number of reads. One by one, I visualised every cluster again, this time in the original file. The conclusion is that you might need something robust to extract chimeric reads; piping with samtools and awk might not be able to do the job for WGS data. 
 
-#### Calulate mean coverage of Human breakpoints Of HPV-enriched Illumina short reads and PacBio-CLR data:
+#### Calculate mean coverage of Human breakpoints of HPV-enriched Illumina short reads and PacBio-CLR data:
 ```
 #!/usr/bin/env bash
 
