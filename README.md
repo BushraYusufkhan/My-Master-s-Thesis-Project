@@ -644,4 +644,36 @@ python2 "$SURVIRUS" \
     --samtools "$SAMTOOLS" \
     --dust "$SDUST"
 ```
+#### Calulate mean coverage of Human breakpoints:
+```
+#!/usr/bin/env bash
 
+# Input TSV and corresponding BAM file
+sample_file="sample.tsv"
+bam_file="sample.sorted.dedup.bam"
+window=100
+output="sample_mean_coverage.tsv"
+
+# Create output header
+echo -e "ID\tChromosome\tPosition\tMeanCov" > "$output"
+
+# Read TSV line by line
+while IFS=$'\t' read -r id cluster chrom human_bp viral_bp suppreads band detected repeats hg19; do
+    # Skip header
+    [[ "$id" == "Sample_ID" ]] && continue
+
+    start=$((human_bp - window))
+    end=$((human_bp + window))
+    region="${chrom}:${start}-${end}"
+
+    # Calculate mean coverage
+    mean_cov=$(samtools depth -r "$region" "$bam_file" | awk '{sum+=$3; n++} END {if(n>0) print sum/n; else print 0}')
+
+    # Append result
+    echo -e "${id}\t${chrom}\t${human_bp}\t${mean_cov}" >> "$output"
+
+    echo "Processed $id ($chrom:$human_bp) -> MeanCov=$mean_cov"
+done < "$sample_file"
+
+echo "Finished $sample_file, output: $output"
+```
