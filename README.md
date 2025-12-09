@@ -558,3 +558,88 @@ echo "Done. Generated:"
 echo "   - $OUT_1P"
 echo "   - $OUT_01P"
 ```
+For the short reads to get the exact breakpoints on the human and viral genomes, this might help. Just match your clustered reads with human_viral_joined_.bed. Once you do that, you will clearly see a pattern. Look at the start and end columns on both sides (human and viral), and if the entries in any of the columns (either start or end) are more similar, those are the breakpoints.
+Example:
+Human clustered reads joined with their split alignments on the viral side.
+chr    start     end         start       end
+chr3   88888     786549       876       6548
+chr3   876548    786549       1098      6548
+chr3   987777    786549       786       6548 
+Here in this example, 786549  is the breakpoint on the human, and 6548 is the breakpoint on the virus.
+```
+mkdir -p extracted
+
+for cluster in *cluster_*.tsv; do
+    base=$(basename "$cluster" .tsv)
+
+    # Extract read IDs (column 4 of cluster file)
+    cut -f4 "$cluster" | sort -u > tmp_ids.txt
+
+    # Match them to column 1 of joined file
+    grep -F -f tmp_ids.txt human_viral_joined.bed > extracted/${base}_human_viral.bed
+done
+
+rm tmp_ids.txt
+```
+And you can then count the unique entries in each column. 
+
+#### Run SurVirus on the filtered BAM files:
+```
+#!/bin/bash
+#SBATCH -A ag-schweiger
+#SBATCH --job-name=survirus
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --time=48:00:00
+#SBATCH --output=survirus_%A_%a.out
+#SBATCH --error=survirus_%A_%a.err
+
+# Load Miniconda module
+module load lang/Miniconda3/23.9.0-0
+
+# Initialize Conda
+eval "$(conda shell.bash hook)"
+
+# Activate SurVirus environment
+conda activate /scratch/bkhan1/conda_envs/survirus
+
+# Paths to executables
+BWA="/scratch/bkhan1/conda_envs/survirus/bin/bwa"
+SAMTOOLS="/scratch/bkhan1/conda_envs/survirus/bin/samtools"
+SDUST="/scratch/bkhan1/conda_envs/survirus/bin/sdust"
+SURVIRUS="/scratch/bkhan1/SurVirus/surveyor.py"
+
+# References
+REF_GENOME="/scratch/bkhan1/hs1_HPV16-8-september/host.fa"
+VIRUS_GENOME="/scratch/bkhan1/hs1_HPV16-8-september/virus.fa"
+COMBINED_REF="/scratch/bkhan1/hs1_HPV16-8-september/chm13v2_HPV16.fa"
+
+# BAM files folder
+INPUT_DIR="/scratch/bkhan1/Symers-pacbio-reads/mapping-results/chimeric-reads"
+
+# Set library path (if required by htslib)
+export LD_LIBRARY_PATH="/scratch/bkhan1/SurVirus/htslib-1.11:$LD_LIBRARY_PATH"
+
+# Get BAM file for this array task
+BAM_FILES=($INPUT_DIR/*.bam)
+BAM=${BAM_FILES[$SLURM_ARRAY_TASK_ID]}
+SAMPLE=$(basename "$BAM" .bam)
+OUTPUT_DIR="$INPUT_DIR/${SAMPLE}_survirus"
+mkdir -p "$OUTPUT_DIR"
+
+echo "Processing sample: $SAMPLE"
+echo "Input BAM: $BAM"
+echo "Output dir: $OUTPUT_DIR"
+
+python2 "$SURVIRUS" \
+    "$BAM" \
+    "$OUTPUT_DIR" \
+    "$REF_GENOME" \
+    "$VIRUS_GENOME" \
+    "$COMBINED_REF" \
+    --threads 8 \
+    --bwa "$BWA" \
+    --samtools "$SAMTOOLS" \
+    --dust "$SDUST"
+```
+
