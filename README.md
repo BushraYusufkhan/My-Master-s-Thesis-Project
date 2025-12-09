@@ -559,6 +559,7 @@ echo "   - $OUT_1P"
 echo "   - $OUT_01P"
 ```
 For the short reads to get the exact breakpoints on the human and viral genomes, this might help. Just match your clustered reads with human_viral_joined_.bed. Once you do that, you will clearly see a pattern. Look at the start and end columns on both sides (human and viral), and if the entries in any of the columns (either start or end) are more similar, those are the breakpoints.
+```
 Example:
 Human clustered reads joined with their split alignments on the viral side.
 chr    start     end         start       end
@@ -566,6 +567,7 @@ chr3   88888     786549       876       6548
 chr3   876548    786549       1098      6548
 chr3   987777    786549       786       6548 
 Here in this example, 786549  is the breakpoint on the human, and 6548 is the breakpoint on the virus.
+```
 ```
 mkdir -p extracted
 
