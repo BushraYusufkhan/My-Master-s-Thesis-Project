@@ -617,7 +617,7 @@ VIRUS_GENOME="/scratch/bkhan1/hs1_HPV16-8-september/virus.fa"
 COMBINED_REF="/scratch/bkhan1/hs1_HPV16-8-september/chm13v2_HPV16.fa"
 
 # BAM files folder
-INPUT_DIR="/scratch/bkhan1/Symers-pacbio-reads/mapping-results/chimeric-reads"
+INPUT_DIR="."
 
 # Set library path (if required by htslib)
 export LD_LIBRARY_PATH="/scratch/bkhan1/SurVirus/htslib-1.11:$LD_LIBRARY_PATH"
