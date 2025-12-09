@@ -885,7 +885,7 @@ for s in $samples; do
     echo "Output written to ${s}_overlaps.tsv"
 done
 ```
-#### HPV gene annotation:
+#### HPV breakpoints annotation:
 Extract the features from genbank file for HPV16: https://www.ncbi.nlm.nih.gov/nuccore/1047888727
 ```
 from Bio import SeqIO
@@ -927,7 +927,6 @@ print(features_df.head(10))
 You might want to clean it a bit these are the features I kept:
 ```
 feature_name,start,end,feature_type
-A in original sequence was deleted,6997,6997,misc_difference
 E1,1,1950,gene
 E1^E4,1,2756,gene
 E2,1892,2989,gene
@@ -1028,4 +1027,111 @@ print("Annotation complete!")
 print(df[['Viral_bp', 'annotation']].to_string(index=False))
 print("\nAnnotation counts:")
 print(df['annotation'].value_counts())
+```
+#### Human breakpoints annotation:
+```
+library(GenomicRanges)
+library(genomation)
+
+refseq_annot <- readTranscriptFeatures("A:/Documents/20231129_HiFi/T2T_ncbiRefSeqAll.bed")
+hs1<-read.table("A:/Documents/20231129_HiFi/hs1_NCBI_RefSeqall_genes.bed", header=TRUE,
+                sep = "\t")
+hs1<-makeGRangesFromDataFrame(hs1,keep.extra.columns = TRUE,seqnames.field= "chrom", start.field=  "chromStart", end.field=  "chromEnd")
+
+genes<-mcols(hs1)$geneName2
+names(genes)<-mcols(hs1)$geneName
+
+
+setwd("X:/Lab_members/Bushra/Alicja/Pacbio-Clr/")
+file = "Iden-dataset - bushra.tsv"
+
+df<-read.delim(file,
+                sep = "\t", header = TRUE)
+
+
+bpGR<-makeGRangesFromDataFrame(df, start.field = "Human_bp",
+                               end.field = "Human_bp", keep.extra.columns = TRUE,
+                               na.rm=TRUE)
+
+bp.annot <- annotateWithGeneParts(target = bpGR,
+                                        feature = refseq_annot)
+dist_tss <- getAssociationWithTSS(bp.annot)
+
+bp.annot
+#Summary of target set annotation with genic parts
+#Rows in target set: 3773
+-----------------------
+#  percentage of target features overlapping with annotation:
+#  promoter       exon     intron intergenic 
+#2.20       2.99      35.44      62.36 
+
+#percentage of target features overlapping with annotation:
+#  (with promoter > exon > intron precedence):
+#  promoter       exon     intron intergenic 
+#2.20       2.46      32.97      62.36 
+
+#percentage of annotation boundaries with feature overlap:
+#  promoter     exon   intron 
+#0.12     0.02     0.38 
+
+#summary of distances to the nearest TSS:
+#  Min.   1st Qu.    Median      Mean   3rd Qu.      Max. 
+#3     14529     66232    913429   1163891 695832346
+
+plotTargetAnnotation(bp.annot, main = "Human breakpoints Annotation NCBI RefSeq")
+
+#Now, I need another annotation file for the table to get the gene names instead of ID
+
+
+mcols(bpGR)$TSS_distance <- dist_tss$dist.to.feature
+mcols(bpGR)$TSS_gene <- as.vector(genes[dist_tss$feature.name])
+
+
+mcols(bpGR)$exons <- ""
+# Find overlaps and assign feature to regions
+hits <- findOverlaps(query = bpGR, subject = refseq_annot$exons, ignore.strand = TRUE)
+mcols(bpGR[queryHits(hits)])$exons <- as.vector(genes[mcols(refseq_annot$exons[subjectHits(hits)])$name])
+
+mcols(bpGR)$introns <- ""
+# Find overlaps and assign feature to regions
+hits <- findOverlaps(query = bpGR, subject = refseq_annot$introns, ignore.strand = TRUE)
+mcols(bpGR[queryHits(hits)])$introns <- as.vector(genes[mcols(refseq_annot$introns[subjectHits(hits)])$name])
+
+mcols(bpGR)$promoters <- ""
+# Find overlaps and assign feature to regions
+mcols(bpGR)$promoters[abs(mcols(bpGR)$TSS_distance) <=2500]<- mcols(bpGR)$TSS_gene[abs(mcols(bpGR)$TSS_distance) <=2500]
+
+mcols(bpGR)$annotation <- ""
+mcols(bpGR)$annotation[mcols(bpGR)$promoters !=""]<-mcols(bpGR)$promoters[mcols(bpGR)$promoters !=""]
+mcols(bpGR)$annotation[mcols(bpGR)$promoters =="" & mcols(bpGR)$exons !=""]<-mcols(bpGR)$exons[mcols(bpGR)$promoters =="" & mcols(bpGR)$exons !=""]
+mcols(bpGR)$annotation[mcols(bpGR)$promoters =="" & mcols(bpGR)$exons =="" & mcols(bpGR)$introns !=""]<-mcols(bpGR)$introns[mcols(bpGR)$promoters =="" & mcols(bpGR)$exons =="" & mcols(bpGR)$introns !=""]
+
+
+mcols(bpGR)$annotation2 <- "intergenic"
+mcols(bpGR)$annotation2[mcols(bpGR)$promoters !=""]<-"promoter"
+mcols(bpGR)$annotation2[mcols(bpGR)$promoters =="" & mcols(bpGR)$exons !=""]<-"exon"
+mcols(bpGR)$annotation2[mcols(bpGR)$promoters =="" & mcols(bpGR)$exons =="" & mcols(bpGR)$introns !=""]<-"intron"
+summary(factor(as.data.frame(bpGR)$annotation2))/nrow(mcols(bpGR))
+
+bp_table<-as.data.frame(bpGR)
+
+write.table(file = paste0(date, "_annotated_",file),bp_table, sep = "\t",
+            row.names = FALSE)
+
+library(ggplot2)
+
+pdf(paste0(date,"_plots.pdf"),
+    width = 5, height =3)
+ggplot(data = bp_table, aes(x= Sample_ID))+
+  geom_bar()+theme_classic()+
+  ggtitle("Breakpoints per sample"  )#+if you have more than 1 study you could add grom_wrap(~Study)
+ggplot(data = bp_table, aes(x= seqnames))+
+  geom_bar()+theme_classic()+
+  ggtitle("Breakpoints per chromosome, Iden et al"  )+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggplot(data = bp_table, aes(x= Sample_ID, y = Supp.reads))+
+  geom_boxplot()+theme_classic()+
+  ggtitle("Breakpoints coverage, Iden et al"  )+
+  ylim(0,100)
+dev.off()
 ```
