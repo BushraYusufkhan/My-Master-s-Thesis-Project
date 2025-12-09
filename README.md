@@ -769,7 +769,7 @@ echo "Finished mapping for $BASENAME at $(date)"
 ```
 And for the long reads Also I used the same logic (same script) to extract chimeric reads and divide them into clusters. And then later visulaized each cluster on IGV.
 
-However, there was a problem with Akagi's samples. It was whole-exome sequencing data, so it is a heavy dataset. There are also other reads exactly at the same location of human-HPV chimeric reads. Some are human-human chimeric reads, some are not even chimeric. So, when I extracted them with samtools piping. Some of the human-chimeric reads were not geting extracted. After extraction of the chimeric reads clusters, for the actual coverage I visualised every cluster, but in the original BAM file. In conclusion chimeric reads extraction with samtools and awk piping might not be able to do the job for WGS data. 
+However, there was a problem with Akagi's samples. It was whole-exome sequencing data, so it is a heavy dataset. There are also other reads exactly at the same location of human-HPV chimeric reads. Some are human-human chimeric reads, some are not even chimeric. So, when I extracted them with samtools piping. Some of the human-chimeric reads were not geting extracted. After extraction of the chimeric reads clusters, for the actual coverage I visualised every cluster, but in the original BAM file. In conclusion chimeric reads extraction with samtools and awk piping might not be able to do the job for heavy WGS data. I did not have time to work on another script for this. 
 
 #### Calculate mean coverage of Human breakpoints of HPV-enriched Illumina short reads and PacBio-CLR data:
 ```
