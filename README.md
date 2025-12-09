@@ -19,9 +19,7 @@ HPV18
 ```
 curl -L -o genome_data.zip "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/GCF_000865665.1/download?include_annotation_type=GENOME_FASTA&include_annotation_type=GENOME_GFF&include_annotation_type=RNA_FASTA&include_annotation_type=CDS_FASTA&include_annotation_type=PROT_FASTA&include_annotation_type=SEQUENCE_REPORT&hydrated=FULLY_HYDRATED"
 ```
-### Datasets
-#### Multi-omics mapping of human papillomavirus integration sites illuminates novel cervical cancer target genes (Iden at al)
-Download the data from Iden et al (PRJNA640649)
+#### Download the data from Iden et al (PRJNA640649)
 ```
 wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR120/055/SRR12056155/SRR12056155_subreads.fastq.gz
 wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR120/056/SRR12056156/SRR12056156_subreads.fastq.gz
@@ -33,7 +31,8 @@ wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR120/061/SRR12056161/SRR12056161_s
 wget -nc ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR120/062/SRR12056162/SRR12056162_subreads.fastq.gz
 
 ```
-#### Proximity ligation‐based sequencing for the identification of human papillomavirus genomic integration sites in formalin‐fixed paraffin- embedded oropharyngeal squamous cell carcinomas (Demers et al., 2024) 
+## Datasets
+### Proximity ligation‐based sequencing for the identification of human papillomavirus genomic integration sites in formalin‐fixed paraffin- embedded oropharyngeal squamous cell carcinomas (Demers et al., 2024) 
 #### Quality control:
 
 Before trimming:
@@ -677,3 +676,127 @@ done < "$sample_file"
 
 echo "Finished $sample_file, output: $output"
 ```
+### Lond reads Iden et al -" Multi-omics mapping of human papillomavirus integration sites illuminates novel cervical cancer target genes" and Akagi et al - "Intratumoral Heterogeneity and Clonal Evolution Induced by HPV Integration":
+
+#### Mapping of Pacbio-CLR Data:
+```
+#!/bin/bash
+#SBATCH --job-name=winnowmap-mapping
+#SBATCH --output=winnowmap-mapping_%j.out
+#SBATCH --error=winnowmap-mapping_%j.err
+#SBATCH --time=24:00:00
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH -A ag-schweiger
+
+# Load and activate conda environment
+module load lang/Miniconda3/23.9.0-0
+conda activate /scratch/bkhan1/conda_envs/winnowmap2/
+
+# Paths
+REF="chm13v2_HPV16.fa"
+REPE_K15="repetitive_k15.txt"
+READ_DIR="."  # <-- folder with all your FASTQ files
+OUTDIR="/scratch/bkhan1/Pacbio_Reads_multi-omics_Iden/winnowmap_mapping"
+mkdir -p $OUTDIR
+
+echo "Starting mapping at $(date)"
+
+# Loop over all FASTQ files in the folder
+for READS in $READ_DIR/*.fastq.gz; do
+    BASENAME=$(basename $READS .fastq.gz)
+    echo "Processing $BASENAME ..."
+
+    # Standard CLR mapping
+    echo "Running standard CLR mapping for $BASENAME..."
+    winnowmap -t $SLURM_CPUS_PER_TASK -W $REPE_K15 -ax map-pb-clr $REF $READS \
+        | samtools view -bS - \
+        | samtools sort -o $OUTDIR/${BASENAME}_clr.sorted.bam
+done
+
+echo "All mappings finished at $(date)"
+```
+#### Mapping of Pacbio-HiFi data:
+```
+#!/bin/bash
+#SBATCH --job-name=winnowmap-hifi
+#SBATCH --output=winnowmap-hifi_%j.out
+#SBATCH --error=winnowmap-hifi_%j.err
+#SBATCH --time=48:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
+#SBATCH -A ag-schweiger
+
+# Load and activate conda environment
+module load bio/SAMtools/1.19.2-GCC-13.2.0
+module load lang/Miniconda3/23.9.0-0
+conda activate /scratch/bkhan1/conda_envs/winnowmap2/
+
+# Paths
+REF="chm13v2_HPV16.fa"
+REPE_K15="repetitive_k15.txt"
+READ_DIR="."   # folder with HiFi reads (fastq.gz)
+OUTDIR="/scratch/bkhan1/Symers-pacbio-reads/mapping-results"
+mkdir -p $OUTDIR
+
+echo "Starting mapping at $(date)"
+
+# Loop over all FASTQ files in the folder
+for READS in $READ_DIR/*.fastq.gz; do
+    BASENAME=$(basename $READS .fastq.gz)
+    echo "Processing $BASENAME ..."
+
+    # HiFi mapping (preset: map-pb)
+    echo "Running HiFi mapping for $BASENAME..."
+    winnowmap -t $SLURM_CPUS_PER_TASK -W $REPE_K15 -ax map-pb $REF $READS \
+        | samtools view -bS - \
+        | samtools sort -o $OUTDIR/${BASENAME}_hifi.sorted.bam
+
+    # Index the BAM
+    samtools index $OUTDIR/${BASENAME}_hifi.sorted.bam
+done
+
+echo "All HiFi mappings finished at $(date)"
+```
+#### Mapping of Nanopore data:
+```
+#!/bin/bash
+#SBATCH --job-name=winnowmap-nano
+#SBATCH --output=winnowmap-nano_%A_%a.out
+#SBATCH --error=winnowmap-nano_%A_%a.err
+#SBATCH --time=48:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
+#SBATCH -A ag-schweiger
+#SBATCH --array=0-7  # 8 files -> 0 to 7
+
+# Load conda
+module load bio/SAMtools/1.19.2-GCC-13.2.0
+module load lang/Miniconda3/23.9.0-0
+conda activate /scratch/bkhan1/conda_envs/winnowmap2/
+
+# Paths
+REF="chm13v2_HPV16.fa"
+REPE_K15="repetitive_k15.txt"
+OUTDIR="/scratch/bkhan1/Symers-nanopore-reads/nanopore-mapping-results"
+mkdir -p $OUTDIR
+
+# Get the list of reads
+READS=(/scratch/bkhan1/Symers-nanopore-reads/rerun-of-two/*.gz)
+READ=${READS[$SLURM_ARRAY_TASK_ID]}
+
+BASENAME=$(basename $READ .fastq.gz)
+
+echo "Starting mapping for $BASENAME at $(date)"
+
+# Winnowmap mapping with softclipping
+winnowmap -t $SLURM_CPUS_PER_TASK -W $REPE_K15 -ax map-ont -Y $REF $READ \
+    | samtools view -bS - \
+    | samtools sort -o $OUTDIR/${BASENAME}_nanopore.sorted.bam
+
+# Index the BAM
+samtools index $OUTDIR/${BASENAME}_nanopore.sorted.bam
+
+echo "Finished mapping for $BASENAME at $(date)"
+```
+And for the long reads Also I used the same logic (same script) to extract chimeric reads and divide them into clusters. And then later visulaized each cluster on IGV.  
