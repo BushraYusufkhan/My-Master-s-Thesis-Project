@@ -557,7 +557,7 @@ echo "Done. Generated:"
 echo "   - $OUT_1P"
 echo "   - $OUT_01P"
 ```
-For the short reads to get the exact breakpoints on the human and viral genomes, this might help. Just match your clustered reads with human_viral_joined_.bed. Once you do that, you will clearly see a pattern. Look at the start and end columns on both sides (human and viral), and if the entries in any of the columns (either start or end) are more similar, those are the breakpoints.
+For the short reads to get the exact breakpoints on the human and viral genomes, this might help. Just match your clustered reads with human_viral_joined.bed. Once you do that, you will clearly see a pattern. Look at the start and end columns on both sides (human and viral), and if the entries in any of the columns (either start or end) are more similar, those are the breakpoints.
 ```
 Example:
 Human clustered reads joined with their split alignments on the viral side.
@@ -642,39 +642,6 @@ python2 "$SURVIRUS" \
     --bwa "$BWA" \
     --samtools "$SAMTOOLS" \
     --dust "$SDUST"
-```
-#### Calulate mean coverage of Human breakpoints:
-```
-#!/usr/bin/env bash
-
-# Input TSV and corresponding BAM file
-sample_file="sample.tsv"
-bam_file="sample.sorted.dedup.bam"
-window=100
-output="sample_mean_coverage.tsv"
-
-# Create output header
-echo -e "ID\tChromosome\tPosition\tMeanCov" > "$output"
-
-# Read TSV line by line
-while IFS=$'\t' read -r id cluster chrom human_bp viral_bp suppreads band detected repeats hg19; do
-    # Skip header
-    [[ "$id" == "Sample_ID" ]] && continue
-
-    start=$((human_bp - window))
-    end=$((human_bp + window))
-    region="${chrom}:${start}-${end}"
-
-    # Calculate mean coverage
-    mean_cov=$(samtools depth -r "$region" "$bam_file" | awk '{sum+=$3; n++} END {if(n>0) print sum/n; else print 0}')
-
-    # Append result
-    echo -e "${id}\t${chrom}\t${human_bp}\t${mean_cov}" >> "$output"
-
-    echo "Processed $id ($chrom:$human_bp) -> MeanCov=$mean_cov"
-done < "$sample_file"
-
-echo "Finished $sample_file, output: $output"
 ```
 ### Lond reads Iden et al -" Multi-omics mapping of human papillomavirus integration sites illuminates novel cervical cancer target genes" and Akagi et al - "Intratumoral Heterogeneity and Clonal Evolution Induced by HPV Integration":
 
@@ -799,4 +766,72 @@ samtools index $OUTDIR/${BASENAME}_nanopore.sorted.bam
 
 echo "Finished mapping for $BASENAME at $(date)"
 ```
-And for the long reads Also I used the same logic (same script) to extract chimeric reads and divide them into clusters. And then later visulaized each cluster on IGV.  
+And for the long reads Also I used the same logic (same script) to extract chimeric reads and divide them into clusters. And then later visulaized each cluster on IGV.
+
+However, there is a problem with Akagi's samples. It is whole exome sequencing data, so it is a heavy dataset. There are also other reads exactly at the same location of human-HPV chimeric reads. Some are human-human chimeric reads, some are not even chimeric. So, when you extract them with samtools piping. Some of the human-chimeric reads might not get extracted. And also if you run the mapping again, even if you use the same parameters and you might get different results. Some of the low coverage chimeric reads might disappear or you will see new chimeric reads at different locations. I got to know about this very late in my analysis. I was almost done, but one day I wanted to calculate the mean coverage, so I had to run the mapping script again and out of curosity I opened the original BAM files (not chimeric), and I saw that the chimeric reads in the original file at a locus are more than the extracted ones, and some of the low coverage clustered disappeared. So, I had to do it all over again for the actual number of reads. One by one I visualized every cluster again, this time in the original file. The conclusion is you might need something robust to extract chimeric reads, piping with samtools and awk might not be able to do the job for WGS data and also you might get different results for the low coverage clusters. 
+
+#### Calulate mean coverage of Human breakpoints Of HPV-enriched Illumina short reads and PacBio-CLR data:
+```
+#!/usr/bin/env bash
+
+# Input TSV and corresponding BAM file
+sample_file="sample.tsv"
+bam_file="sample.sorted.dedup.bam"
+window=100
+output="sample_mean_coverage.tsv"
+
+# Create output header
+echo -e "ID\tChromosome\tPosition\tMeanCov" > "$output"
+
+# Read TSV line by line
+while IFS=$'\t' read -r id cluster chrom human_bp viral_bp suppreads band detected repeats hg19; do
+    # Skip header
+    [[ "$id" == "Sample_ID" ]] && continue
+
+    start=$((human_bp - window))
+    end=$((human_bp + window))
+    region="${chrom}:${start}-${end}"
+
+    # Calculate mean coverage
+    mean_cov=$(samtools depth -r "$region" "$bam_file" | awk '{sum+=$3; n++} END {if(n>0) print sum/n; else print 0}')
+
+    # Append result
+    echo -e "${id}\t${chrom}\t${human_bp}\t${mean_cov}" >> "$output"
+
+    echo "Processed $id ($chrom:$human_bp) -> MeanCov=$mean_cov"
+done < "$sample_file"
+
+echo "Finished $sample_file, output: $output"
+```
+#### Calulate mean coverage of WGS PacBio-HiFi and Nanopore Data:
+```
+#!/bin/bash
+#SBATCH --job-name=mean_coverage       
+#SBATCH --output=mean_coverage_%j.out 
+#SBATCH --error=mean_coverage_%j.err
+#SBATCH --time=78:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
+#SBATCH -A ag-schweiger
+
+# Load samtools module if needed
+module load bio/SAMtools/1.21-GCC-13.3.0
+
+# Folder containing BAM files
+bam_folder="."   # change if needed
+
+# Output summary file
+summary="overall_mean_coverage.tsv"
+echo -e "BAM_File\tMeanCov" > "$summary"
+
+# Loop through all BAM files
+for bam in "$bam_folder"/*.bam; do
+    [[ -f "$bam" ]] || continue
+    echo "Processing $bam ..."
+    mean_cov=$(samtools coverage "$bam" | awk 'NR==2 {print $7}')
+    echo -e "$(basename "$bam")\t$mean_cov" >> "$summary"
+done
+
+echo "Finished! Overall mean coverage saved in $summary"
+```
+For the long reads also you can count the start and end of each cluster, this might work for some cases. But if the reads have split alignment on both ends the start and end will be the same. There will also be cases the start and end will be the same but the split alignment will only be on one side. Similarly, the long reads are fragmented, they will have multiple alignments other locations, mutiple breakpoints on viral side or human side. 
