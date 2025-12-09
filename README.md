@@ -380,3 +380,180 @@ for BAM_FILE in *.bam; do
 
 done
 ```
+#### Sort the reads into clusters to determine human HPV breakpoints:
+```
+#!/bin/bash
+
+# Directory containing BAM files
+BAM_DIR="./"   # change if your BAM files are elsewhere
+OUT_DIR="./processed_samples"
+
+mkdir -p "$OUT_DIR"
+
+# Summary file for all samples
+SUMMARY="$OUT_DIR/all_samples_cluster_counts.tsv"
+echo -e "Sample\tClusterID\tReadCount" > "$SUMMARY"
+
+# Loop over BAM files
+for bam in "$BAM_DIR"/*.bam; do
+    sample=$(basename "$bam" .bam)
+    sample_dir="$OUT_DIR/$sample"
+    mkdir -p "$sample_dir"
+
+    echo "Processing sample: $sample"
+
+    # Extract human reads (everything NOT NC_001526.4)
+    samtools view -h "$bam" | awk '$3 != "NC_001526.4" || $1 ~ /^@/' | \
+        samtools view -b -o "$sample_dir/${sample}_human.bam"
+
+    # Extract viral reads (only NC_001526.4)
+    samtools view -b "$bam" "NC_001526.4" > "$sample_dir/${sample}_viral.bam"
+
+    # Convert BAM to BED
+    bedtools bamtobed -i "$sample_dir/${sample}_human.bam" > "$sample_dir/${sample}_human.bed"
+    bedtools bamtobed -i "$sample_dir/${sample}_viral.bam" > "$sample_dir/${sample}_viral.bed"
+
+    # Sort BED by read name (4th column)
+    sort -k4,4 "$sample_dir/${sample}_human.bed" > "$sample_dir/${sample}_human_sorted.bed"
+    sort -k4,4 "$sample_dir/${sample}_viral.bed" > "$sample_dir/${sample}_viral_sorted.bed"
+
+    # Optional join human and viral reads by read name
+    join -1 4 -2 4 <(sort -k4,4 "$sample_dir/${sample}_human_sorted.bed") \
+                    <(sort -k4,4 "$sample_dir/${sample}_viral_sorted.bed") \
+                    > "$sample_dir/${sample}_human_viral_joined.bed"
+
+    # Cluster human reads
+    bedtools cluster -i "$sample_dir/${sample}_human.bed" > "$sample_dir/${sample}_human_clustered.tsv"
+
+    # Count reads per cluster and append to summary
+    awk -F'\t' -v sample="$sample" '{counts[$NF]++} END {for (c in counts) print sample"\t"c"\t"counts[c]}' \
+        "$sample_dir/${sample}_human_clustered.tsv" >> "$SUMMARY"
+
+    # Split clusters into separate files
+    awk -F'\t' -v outdir="$sample_dir" -v sample="$sample" '{ out = outdir"/"sample"_cluster_" $NF ".tsv"; print > out }' \
+        "$sample_dir/${sample}_human_clustered.tsv"
+
+    echo "Finished processing $sample"
+done
+
+echo "All BAM files processed. Summary saved to $SUMMARY"
+```
+I was facing an issue with short reads; sometimes the reads had identical start and end positions. I did not know what those were. I had already removed PCR duplicates. In the original study, they said something about low-complexity hairpin regions. And I assumed the reads which had the same start and end would be these low complexity hairpin regions. And to get rid of those, I counted them as one; those reads were distorting the true signals.
+```
+base_dir="/scratch/bkhan1/20240820_HPV_FFPE_TLC/combined_folder/samples-cut-with-nla/cutadapt_trim_reads/clean_reads_mapping/dedup-fi
+les/chimeric_reads/filtered-bam-files/processed_samples"
+
+cd "$base_dir" || exit
+
+# Output summary files
+cluster_summary="3dedup_cluster_summary.tsv"
+total_summary="3dedup_total_read_counts.tsv"
+
+# Headers
+echo -e "Sample\tCluster_File\tBefore_Dedup_Reads\tAfter_Dedup_Reads\tCount_Entries" > "$cluster_summary"
+echo -e "Sample\tTotal_Reads" > "$total_summary"
+
+# Loop through each sample folder
+for sample_dir in trimmed_*; do
+    if [ -d "$sample_dir" ]; then
+        echo "------------------------------------------"
+        echo " Processing sample: $sample_dir"
+        echo "------------------------------------------"
+
+        cd "$sample_dir" || continue
+        mkdir -p dedup counts
+
+        # Process all cluster files
+        for file in *_cluster_*.tsv; do
+            [ -s "$file" ] || { echo "Skipping empty file: $file"; continue; }
+
+            dedup_file="dedup/${file%.tsv}_dedup.tsv"
+            counts_file="dedup/${file%.tsv}_counts.tsv"
+
+            # Deduplicate by first 3 columns
+            sort -t$'\t' -k1,1 -k2,2n -k3,3n "$file" | awk '!seen[$1"\t"$2"\t"$3]++' > "$dedup_file"
+
+            # Count reads per cluster
+            awk -F'\t' '{key=$1"\t"$2"\t"$3; counts[key]++} END {
+                for(k in counts) print k"\t"counts[k]
+            }' "$dedup_file" > "$counts_file"
+
+            # Before/After dedup read counts
+            before_dedup=$(wc -l < "$file")
+            after_dedup=$(wc -l < "$dedup_file")
+            num_counts=$(wc -l < "$counts_file")
+
+            # Append summary info
+            echo -e "${sample_dir}\t${file}\t${before_dedup}\t${after_dedup}\t${num_counts}" >> "$base_dir/$cluster_summary"
+        done
+
+        # Safe version (avoids 'Argument list too long' error)
+        total_reads=$(find . -maxdepth 1 -name "*_cluster_*.tsv" -type f -exec cat {} + | awk 'NF >= 3 {reads++} END{print reads}')
+        echo -e "${sample_dir}\t${total_reads}" >> "$base_dir/$total_summary"
+
+        cd "$base_dir" || exit
+    fi
+done
+
+echo "Processing complete!"
+echo "Summaries saved to:"
+echo "   - $cluster_summary"
+echo "   - $total_summary"
+```
+```
+#!/bin/bash
+
+# Input file
+DEDUP_SUMMARY="3dedup_cluster_summary.tsv"
+
+# Output files
+OUT_1P="3dedup_clusters_1percent_min3reads.tsv"
+OUT_01P="3dedup_clusters_0.01percent_min3reads.tsv"
+
+# Remove old outputs
+rm -f "$OUT_1P" "$OUT_01P"
+
+# Headers (added Before_Dedup_Reads)
+echo -e "Sample\tCluster_ID\tBefore_Dedup_Reads\tAfter_Dedup_Reads\tPercentage" > "$OUT_1P"
+echo -e "Sample\tCluster_ID\tBefore_Dedup_Reads\tAfter_Dedup_Reads\tPercentage" > "$OUT_01P"
+
+# Iterate over each unique sample
+samples=$(awk 'NR>1 {print $1}' "$DEDUP_SUMMARY" | sort -u)
+
+for sample in $samples; do
+    # Clean up sample name
+    clean_sample=$(echo "$sample" | sed -E 's/^trimmed_//; s/(_L001)?\.sorted\.dedup\.chimeric(\.true_integration)?//')
+
+    # Total reads (sum of After_Dedup_Reads = column 4)
+    total_reads=$(awk -v s="$sample" -F'\t' '$1==s {sum+=$4} END{print sum}' "$DEDUP_SUMMARY")
+
+    # Skip if no reads
+    [ -z "$total_reads" ] && continue
+
+    # Extract and calculate per cluster
+    awk -v s="$sample" -v total="$total_reads" -F'\t' '
+        $1==s && $4>2 {
+            cluster=$2
+            sub(/.*_cluster_/, "", cluster)
+            sub(/\.tsv$/, "", cluster)
+            before=$3
+            after=$4
+            perc=(after/total)*100
+            print s "\t" cluster "\t" before "\t" after "\t" perc
+        }' "$DEDUP_SUMMARY" |
+    while read -r s cluster before after perc; do
+        # Write to 1% threshold file
+        if (( $(echo "$perc >= 1" | bc -l) )); then
+            echo -e "$clean_sample\t$cluster\t$before\t$after\t$perc" >> "$OUT_1P"
+        fi
+        # Write to 0.1% threshold file
+        if (( $(echo "$perc >= 0.01" | bc -l) )); then
+            echo -e "$clean_sample\t$cluster\t$before\t$after\t$perc" >> "$OUT_01P"
+        fi
+    done
+done
+
+echo "Done. Generated:"
+echo "   - $OUT_1P"
+echo "   - $OUT_01P"
+```
