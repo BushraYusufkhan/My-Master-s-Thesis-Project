@@ -837,7 +837,7 @@ echo "Finished! Overall mean coverage saved in $summary"
 For the long reads also you can count the start and end of reads for each cluster, this might work for some cases. But if the reads have split alignment on both ends the start and end will be the same. There will also be cases the start and end will be the same but the split alignment will only be on one side. Similarly, in some cases the long reads are fragmented, they will have multiple alignments other locations as well, mutiple breakpoints on viral or human side. 
 
 #### Overlap of the Identified human breakpoints with centromeric repeat annotation file:
-For this overlaping you do need the exact breakpoint, do can also do this overlap analysis with you cluster files. 
+For this overlaping you do need the exact breakpoint, do can also do this overlap analysis with your cluster files. 
 ```
 mkdir -p overlaps
 
